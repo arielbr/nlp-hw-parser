@@ -344,7 +344,8 @@ class Item:
     dot_position: int
     start_position: int
     weight: float  # Note that the weight here is already -log2prob
-    backpointer: List[tuple] = None  # index of the ancestor, with the first int as col index and second int as row index
+    left_ptr: Item = None
+    right_ptr: Item = None
 
     # We don't store the end_position, which corresponds to the column
     # that the item is in, although you could store it redundantly for 
