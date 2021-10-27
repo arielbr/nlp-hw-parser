@@ -21,7 +21,7 @@ from typing import Counter as CounterType, Iterable, List, Optional, Dict, Tuple
 # TODO: Remove
 import sys
 
-logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 
 def parse_args() -> argparse.Namespace:
@@ -78,9 +78,15 @@ class EarleyChart:
         self.cols: List[Agenda]
         self._run_earley()  # run Earley's algorithm to construct self.cols
 
-    def get(self, pointer: tuple):
+    def get(self, pointer: tuple) -> Item:
         """Get the item based on pointer"""
         return self.cols[pointer[0]].get(pointer[1])
+
+    def get_pointer(self, item: Item) -> tuple:
+        """Compute the index of an existing item"""
+        # logging.info(item)
+        # logging.info((item.start_position, self.cols[item.start_position].get_row_index(item)))
+        return (item.start_position, self.cols[item.start_position].get_row_index(item))
 
     def accepted(self) -> bool:
         """Was the sentence accepted?
@@ -122,7 +128,7 @@ class EarleyChart:
                 elif self.grammar.is_nonterminal(next):
                     # Predict the nonterminal after the dot
                     logging.debug(f"{item} => PREDICT")
-                    row = column.get_index(item)
+                    row = column.get_row_index(item)
                     self._predict(next, i, (i, row))
                 else:
                     # Try to scan the terminal after the dot
@@ -137,20 +143,20 @@ class EarleyChart:
             if pointer != (-1, -1):  # First element
                 new_weight += self.get(pointer).weight
 
-            # Check for duplicates, if exists, compare weights and take the min
             new_item = Item(rule, dot_position=0, start_position=position, weight=new_weight,
-                            backpointer=pointer)
+                            backpointer=[pointer])
             self.cols[position].push(new_item)
-            logging.debug(f"\tPredicted: {new_item} in column {position}")
+            # logging.info(f"\tPredicted: {new_item} in column {position}")
             self.profile["PREDICT"] += 1
 
     def _scan(self, item: Item, position: int) -> None:
         """Attach the next word to this item that ends at position, 
         if it matches what this item is looking for next."""
         if position < len(self.tokens) and self.tokens[position] == item.next_symbol():
-            new_item = item.with_dot_advanced()
+            item_pointer = self.get_pointer(item)
+            new_item = item.with_dot_advanced(item_pointer)
             self.cols[position + 1].push(new_item)
-            logging.debug(f"\tScanned to get: {new_item} in column {position + 1}")
+            # logging.info(f"\tScanned to get: {new_item} in column {position + 1}")
             self.profile["SCAN"] += 1
 
     def _attach(self, item: Item, position: int) -> None:
@@ -158,13 +164,27 @@ class EarleyChart:
         customers' dots to create new items in this column.  (This operation is sometimes
         called "complete," but actually it attaches an item that was already complete.)
         """
+        # Attemp to get the ancestor using the backpointers
+        # if item.backpointer[0] != (-1, -1):
+        #     # Trace back predictions, if any, to find customer
+        #     # customer = self.get(item.backpointer[0])
+        #     # while customer.next_symbol() != item.rule.lhs:
+        #     #     customer = self.get(customer.backpointer[0])
+        #     # item_pointer = self.get_pointer(item)
+        #     # new_item = customer.with_dot_advanced_attach(item, item_pointer)
+        #     # logging.info(f"Attaching: {item} to {customer}")
+        #
+        #     logging.info(f"\tAttached to get: {new_item} in column {position}")
+        #     self.cols[position].push(new_item)
+
         mid = item.start_position  # start position of this item = end position of item to its left
+        item_pointer = self.get_pointer(item)
         for customer in self.cols[mid].all():  # could you eliminate this inefficient linear search?
             if customer.next_symbol() == item.rule.lhs:
-                new_item = customer.with_dot_advanced()
-                self.cols[position].push(new_item)
-                logging.debug(f"\tAttached to get: {new_item} in column {position}")
+                new_item = customer.with_dot_advanced_attach(item, item_pointer)
+                # logging.info(f"\tAttached to get: {new_item} in column {position}")
                 self.profile["ATTACH"] += 1
+                self.cols[position].push(new_item)
 
 
 class Agenda:
@@ -213,13 +233,19 @@ class Agenda:
         if item not in self._index:  # O(1) lookup in hash table
             self._items.append(item)
             self._index[item] = len(self._items) - 1
+            # logging.info(f"Pushed {item}")
         else:
-            old_item = self.get(item)
+            old_item_index = self.get_row_index(item)
+            old_item = self.get(old_item_index)
+            # logging.info(f"old_item: {old_item}, {item}")
             # New item has lower weight thus replaces the old item
             if item.weight < old_item.weight:
                 # TODO: Does old item needs to be removed from memory? Guess not due to index rearrangement
+                logging.debug(f"item.weight {item.weight}:{old_item.weight}")
                 self._items.append(item)
                 self._index[item] = len(self._items) - 1
+                # TODO: Need to re-process allow re-process, MOVE old item if processesd, otherwise overwrite
+                # logging.info(f"Pushed {item}")
 
     def pop(self) -> Item:
         """Returns one of the items that was waiting to be popped (dequeued).
@@ -231,11 +257,11 @@ class Agenda:
         return item
 
     def get(self, index: int) -> Item:
-        """Returns the retrieved item"""
+        """Returns the retrieved item, O(1)"""
         return self._items[index]
 
-    def get_index(self, item: Item) -> Item:
-        """Returns the retrieved item"""
+    def get_row_index(self, item: Item) -> Item:
+        """Returns the index of an item, O(1)"""
         return self._index.get(item)
 
     def all(self) -> Iterable[Item]:
@@ -349,10 +375,17 @@ class Item:
         else:
             return self.rule.rhs[self.dot_position]
 
-    def with_dot_advanced(self) -> Item:
+    def with_dot_advanced(self, pointer: tuple) -> Item:
         if self.next_symbol() is None:
             raise IndexError("Can't advance the dot past the end of the rule")
-        return Item(rule=self.rule, dot_position=self.dot_position + 1, start_position=self.start_position)
+        return Item(rule=self.rule, dot_position=self.dot_position + 1, start_position=self.start_position,
+                    weight=self.weight, backpointer=[pointer])
+
+    def with_dot_advanced_attach(self, item: Item, pointer: int):
+        if self.next_symbol() is None:
+            raise IndexError("Can't advance the dot past the end of the rule")
+        return Item(rule=self.rule, dot_position=self.dot_position + 1, start_position=self.start_position,
+                    weight=self.weight + item.weight, backpointer=[self.backpointer[0], pointer])
 
     def __repr__(self) -> str:
         """Complete string used to show this item at the command line"""

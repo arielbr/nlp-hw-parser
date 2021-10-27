@@ -18,6 +18,10 @@ from pathlib import Path
 from collections import Counter
 from typing import Counter as CounterType, Iterable, List, Optional, Dict, Tuple
 
+import sys
+
+# logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments"""
