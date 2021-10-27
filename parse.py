@@ -78,6 +78,10 @@ class EarleyChart:
         self.cols: List[Agenda]
         self._run_earley()  # run Earley's algorithm to construct self.cols
 
+    def get(self, pointer: tuple):
+        """Get the item based on pointer"""
+        return self.cols[pointer[0]].get(pointer[1])
+
     def accepted(self) -> bool:
         """Was the sentence accepted?
         That is, does the finished chart contain an item corresponding to a parse of the sentence?
@@ -95,7 +99,7 @@ class EarleyChart:
         self.cols = [Agenda() for _ in range(len(self.tokens) + 1)]
 
         # Start looking for ROOT at position 0
-        self._predict(self.grammar.start_symbol, 0)
+        self._predict(self.grammar.start_symbol, 0, (-1, -1))  # The root item backpoints to (-1, -1)
 
         # We'll go column by column, and within each column row by row.
         # Processing earlier entries in the column may extend the column
@@ -110,7 +114,7 @@ class EarleyChart:
             logging.debug(f"Processing items in column {i}")
             while column:  # while agenda isn't empty
                 item = column.pop()  # dequeue the next unprocessed item
-                next = item.next_symbol();
+                next = item.next_symbol()
                 if next is None:
                     # Attach this complete constituent to its customers
                     logging.debug(f"{item} => ATTACH")
@@ -118,16 +122,24 @@ class EarleyChart:
                 elif self.grammar.is_nonterminal(next):
                     # Predict the nonterminal after the dot
                     logging.debug(f"{item} => PREDICT")
-                    self._predict(next, i)
+                    row = column.get_index(item)
+                    self._predict(next, i, (i, row))
                 else:
                     # Try to scan the terminal after the dot
                     logging.debug(f"{item} => SCAN")
                     self._scan(item, i)
 
-    def _predict(self, nonterminal: str, position: int) -> None:
+    def _predict(self, nonterminal: str, position: int, pointer: tuple) -> None:
         """Start looking for this nonterminal at the given position."""
         for rule in self.grammar.expansions(nonterminal):
-            new_item = Item(rule, dot_position=0, start_position=position)
+            # Compute the new weight
+            new_weight = rule.weight
+            if pointer != (-1, -1):  # First element
+                new_weight += self.get(pointer).weight
+
+            # Check for duplicates, if exists, compare weights and take the min
+            new_item = Item(rule, dot_position=0, start_position=position, weight=new_weight,
+                            backpointer=pointer)
             self.cols[position].push(new_item)
             logging.debug(f"\tPredicted: {new_item} in column {position}")
             self.profile["PREDICT"] += 1
@@ -177,26 +189,6 @@ class Agenda:
     with duplicate detection, and that is what is implemented here.
     However, other implementations are possible -- and could be useful
     when dealing with weights, backpointers, and optimizations.
-
-    >>> a = Agenda()
-    >>> a.push(3)
-    >>> a.push(5)
-    >>> a.push(3)   # duplicate ignored
-    >>> a
-    Agenda([]; [3, 5])
-    >>> a.pop()
-    3
-    >>> a
-    Agenda([3]; [5])
-    >>> a.push(3)   # duplicate ignored
-    >>> a.push(7)
-    >>> a
-    Agenda([3]; [5, 7])
-    >>> while a:    # that is, while len(a) != 0
-    ...    print(a.pop())
-    5
-    7
-
     """
 
     def __init__(self) -> None:
@@ -221,6 +213,13 @@ class Agenda:
         if item not in self._index:  # O(1) lookup in hash table
             self._items.append(item)
             self._index[item] = len(self._items) - 1
+        else:
+            old_item = self.get(item)
+            # New item has lower weight thus replaces the old item
+            if item.weight < old_item.weight:
+                # TODO: Does old item needs to be removed from memory? Guess not due to index rearrangement
+                self._items.append(item)
+                self._index[item] = len(self._items) - 1
 
     def pop(self) -> Item:
         """Returns one of the items that was waiting to be popped (dequeued).
@@ -230,6 +229,14 @@ class Agenda:
         item = self._items[self._next]
         self._next += 1
         return item
+
+    def get(self, index: int) -> Item:
+        """Returns the retrieved item"""
+        return self._items[index]
+
+    def get_index(self, item: Item) -> Item:
+        """Returns the retrieved item"""
+        return self._index.get(item)
 
     def all(self) -> Iterable[Item]:
         """Collection of all items that have ever been pushed, even if 
@@ -313,10 +320,26 @@ class Item:
     rule: Rule
     dot_position: int
     start_position: int
+    weight: float  # Note that the weight here is already -log2prob
+    backpointer: List[tuple]  # index of the ancestor, with the first int as col index and second int as row index
 
     # We don't store the end_position, which corresponds to the column
     # that the item is in, although you could store it redundantly for 
     # debugging purposes if you wanted.
+
+    """See https://stackoverflow.com/questions/2909106/whats-a-correct-and-good-way-to-implement-hash for building 
+    partial hash"""
+
+    def __key(self):
+        return (self.rule, self.dot_position, self.start_position)
+
+    def __hash__(self):
+        return hash(self.__key())
+
+    def __eq__(self, other):
+        if isinstance(other, Item):
+            return self.__key() == other.__key()
+        return False
 
     def next_symbol(self) -> Optional[str]:
         """What's the next, unprocessed symbol (terminal, non-terminal, or None) in this partially matched rule?"""
@@ -337,7 +360,7 @@ class Item:
         rhs = list(self.rule.rhs)  # Make a copy.
         rhs.insert(self.dot_position, DOT)
         dotted_rule = f"{self.rule.lhs} → {' '.join(rhs)}"
-        return f"({self.start_position}, {dotted_rule})"  # matches notation on slides
+        return f"({self.weight:.2f} {self.start_position}, {dotted_rule} | {self.backpointer})"
 
 
 def main():
