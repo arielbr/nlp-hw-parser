@@ -67,6 +67,13 @@ def parse_args() -> argparse.Namespace:
 class EarleyChart:
     """A chart for Earley's algorithm."""
 
+    # def get_pointer(self, item: Item) -> tuple:
+    #     """Compute the index of an existing item"""
+    #     # logging.info(item)
+    #     # logging.info((item.start_position, self.cols[item.start_position].get_row_index(item)))
+    #     item_position = item.start_position + item.dot_position
+    #     return (item_position, self.cols[item_position].get_row_index(item))
+
     def __init__(self, tokens: List[str], grammar: Grammar, progress: bool = False) -> None:
         """Create the chart based on parsing `tokens` with `grammar`.  
         `progress` says whether to display progress bars as we parse."""
@@ -77,16 +84,6 @@ class EarleyChart:
 
         self.cols: List[Agenda]
         self._run_earley()  # run Earley's algorithm to construct self.cols
-
-    def get(self, pointer: tuple) -> Item:
-        """Get the item based on pointer"""
-        return self.cols[pointer[0]].get(pointer[1])
-
-    def get_pointer(self, item: Item) -> tuple:
-        """Compute the index of an existing item"""
-        # logging.info(item)
-        # logging.info((item.start_position, self.cols[item.start_position].get_row_index(item)))
-        return (item.start_position, self.cols[item.start_position].get_row_index(item))
 
     def accepted(self) -> bool:
         """Was the sentence accepted?
@@ -128,7 +125,6 @@ class EarleyChart:
                 elif self.grammar.is_nonterminal(next):
                     # Predict the nonterminal after the dot
                     logging.debug(f"{item} => PREDICT")
-                    row = column.get_row_index(item)
                     self._predict(next, i)
                 else:
                     # Try to scan the terminal after the dot
@@ -150,8 +146,7 @@ class EarleyChart:
         """Attach the next word to this item that ends at position, 
         if it matches what this item is looking for next."""
         if position < len(self.tokens) and self.tokens[position] == item.next_symbol():
-            item_pointer = self.get_pointer(item)
-            new_item = item.with_dot_advanced(item_pointer)
+            new_item = item.with_dot_advanced(item)
             self.cols[position + 1].push(new_item)
             # logging.info(f"\tScanned to get: {new_item} in column {position + 1}")
             self.profile["SCAN"] += 1
@@ -175,11 +170,17 @@ class EarleyChart:
         #     self.cols[position].push(new_item)
 
         mid = item.start_position  # start position of this item = end position of item to its left
-        item_pointer = self.get_pointer(item)
         for customer in self.cols[mid].all():  # could you eliminate this inefficient linear search?
             if customer.next_symbol() == item.rule.lhs:
-                new_item = customer.with_dot_advanced_attach(item, item_pointer)
-                # logging.info(f"\tAttached to get: {new_item} in column {position}")
+                new_item = customer.with_dot_advanced_attach(item)
+                # left_ptr_pos = None
+                # right_ptr_pos = None
+                # if new_item.left_ptr is not None:
+                #     left_ptr_pos = self.get_pointer(new_item.left_ptr)
+                #
+                # if new_item.right_ptr is not None:
+                #     right_ptr_pos = self.get_pointer(new_item.right_ptr)
+                logging.info(f"\tAttached to get: {new_item} in column {position}")
                 self.profile["ATTACH"] += 1
                 self.cols[position].push(new_item)
 
@@ -192,7 +193,7 @@ class Agenda:
     This implementation of an agenda also remembers which items have
     been pushed before, even if they have subsequently been popped.
     This is because already popped items must still be found by
-    duplicate detection and as customers for attach.  
+    duplicate detection and as customers for attach.
 
     (In general, AI algorithms often maintain a "closed list" (or
     "chart") of items that have already been popped, in addition to
@@ -234,15 +235,22 @@ class Agenda:
         else:
             old_item_index = self.get_row_index(item)
             old_item = self.get(old_item_index)
-            # logging.info(f"old_item: {old_item}, {item}")
-            # New item has lower weight thus replaces the old item
+
+            # New item has lower weight thus replaces the old item or re-process
             if item.weight < old_item.weight:
-                # TODO: Does old item needs to be removed from memory? Guess not due to index rearrangement
-                logging.debug(f"item.weight {item.weight}:{old_item.weight}")
-                self._items.append(item)
-                self._index[item] = len(self._items) - 1
-                # TODO: Need to re-process allow re-process, MOVE old item if processesd, otherwise overwrite
-                # logging.info(f"Pushed {item}")
+                next_index = self.next_index()
+                if next_index > old_item_index:
+                    # MOVE the old item down to allow re-processing
+                    self._items[old_item_index] = None  # Remove the old item
+                    self._items.append(item)  # Append the new item
+                    self._index[item] = len(self._items) - 1  # Reset the item's index
+                else:
+                    # Overwrite if otherwise
+                    self._items[old_item_index] = item
+
+    def next_index(self) -> int:
+        """Return the item's index that is being processed currently"""
+        return self._next
 
     def pop(self) -> Item:
         """Returns one of the items that was waiting to be popped (dequeued).
@@ -373,17 +381,17 @@ class Item:
         else:
             return self.rule.rhs[self.dot_position]
 
-    def with_dot_advanced(self, pointer: tuple) -> Item:
+    def with_dot_advanced(self, item: Item) -> Item:
         if self.next_symbol() is None:
             raise IndexError("Can't advance the dot past the end of the rule")
         return Item(rule=self.rule, dot_position=self.dot_position + 1, start_position=self.start_position,
-                    weight=self.weight, backpointer=[pointer])
+                    weight=self.weight, left_ptr=item)
 
-    def with_dot_advanced_attach(self, item: Item, pointer: int):
+    def with_dot_advanced_attach(self, item: Item):
         if self.next_symbol() is None:
             raise IndexError("Can't advance the dot past the end of the rule")
         return Item(rule=self.rule, dot_position=self.dot_position + 1, start_position=self.start_position,
-                    weight=self.weight + item.weight, backpointer=[self.backpointer[0], pointer])
+                    weight=self.weight + item.weight, left_ptr=self, right_ptr=item)
 
     def __repr__(self) -> str:
         """Complete string used to show this item at the command line"""
@@ -391,7 +399,9 @@ class Item:
         rhs = list(self.rule.rhs)  # Make a copy.
         rhs.insert(self.dot_position, DOT)
         dotted_rule = f"{self.rule.lhs} → {' '.join(rhs)}"
-        return f"({self.weight:.2f} {self.start_position}, {dotted_rule} | {self.backpointer})"
+        # return f"{self.weight:.2f} {self.start_position}, {dotted_rule}"
+        return f"{self.weight:.2f} {self.start_position}, {dotted_rule} | left: ({self.left_ptr}) | right(" \
+               f"{self.right_ptr})"
 
 
 def main():
