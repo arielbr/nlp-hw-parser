@@ -110,11 +110,12 @@ class EarleyChart:
         if item.dot_position > 0:  # Avoid empty rhs
             prev = item.rule.rhs[item.dot_position - 1]
             if self.grammar.is_nonterminal(prev):
-                res += "( "
-            res += prev + " "
+                res += "(" + prev + " "
+            else:
+                res += prev
 
         if item.right_ptr:
-            res += self.print_item(item.right_ptr) + ") "
+            res += self.print_item(item.right_ptr) + ")"
 
         return res
 
@@ -456,13 +457,8 @@ def main():
             sentence = sentence.strip()
             if sentence != "":  # skip blank lines
                 # analyze the sentence
-                #logging.debug("=" * 70)
-                #logging.debug(f"Parsing sentence: {sentence}")
                 chart = EarleyChart(sentence.split(), grammar, progress=args.progress)
                 # print the result
-                # print(
-                #     f"'{sentence}' is {'accepted' if chart.accepted() else 'rejected'} by {args.grammar}"
-                # )
                 logging.debug(f"Profile of work done: {chart.profile}")
                 if chart.accepted():
                     last_item = None
@@ -474,13 +470,8 @@ def main():
                                 and item.weight < last_weight):  # has minimal weight
                             last_item = item
                             last_weight = item.weight
-                    # logging.info(last_item)
-                    # logging.info(f"left: {last_item.left_ptr}")
-                    # logging.info(last_item.right_ptr)
-                    # logging.info(f"left: {last_item.right_ptr.left_ptr}")
-                    # logging.info(last_item.right_ptr.right_ptr)
                     s = chart.print_item(last_item).strip()
-                    s = "( " + args.start_symbol + " " + s + " )"
+                    s = "(" + args.start_symbol + " " + s + ")"
                     print(s)
                     print(last_item.weight)
                 else:
