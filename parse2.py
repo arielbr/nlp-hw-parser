@@ -85,6 +85,15 @@ class EarleyChart:
         self.cols: List[Agenda]
         self._run_earley()  # run Earley's algorithm to construct self.cols
 
+    # overriding function for grammar with low-prob lines pruned
+    def __init__(self, gr: Grammar, prune_level: float = 0.001) -> None:
+        self.start_symbol = gr.start_symbol
+        self._expansions: Dict[str, List[Rule]] = {}
+        for lhs in gr._expansions:
+            for rule in gr._expansions[lhs]:
+                if rule.get_weight > prune_level:
+                    gr.expansions[lhs].remove(rule)
+
     def accepted(self) -> bool:
         """Was the sentence accepted?
         That is, does the finished chart contain an item corresponding to a parse of the sentence?
@@ -333,6 +342,51 @@ class Grammar:
         for file in files:
             self.add_rules_from_file(file)
 
+    @classmethod
+    def reduce_terminals_not_appearing(cls, gr: Grammar, sentences: Path, *grammarfiles: Path) -> Grammar:
+        """Remove rules with terminals not appearing in the text"""
+        words_set = set()
+        temp_gr = Grammar(gr.start_symbol, *grammarfiles)
+        new_gr = Grammar(gr.start_symbol, *[]) # make new grammar with temporarily empty set of rules
+        with open(sentences) as f:
+            for sentence in f.readlines():
+                if sentence != "":
+                    words = sentence.split()
+                    words_set = words_set.union(words)
+        while 1:
+            appeared_non_terms = set()
+            count_bef = sum(len(temp_gr._expansions[i]) for i in temp_gr._expansions)
+            for lhs in temp_gr._expansions:
+                for rule in temp_gr._expansions[lhs]:
+                    remove = False
+                    for word in rule.rhs:
+                        # for deleted 'nonterminals' in subsequent passes, they
+                        # never appear as the lhs of any rules, and won't enter this line to be added
+                        if not temp_gr.is_nonterminal(word) and word not in words_set:
+                            remove = True
+                            break
+                    if not remove:
+                        appeared_non_terms.add(rule.lhs)
+                        if rule.lhs not in new_gr._expansions:
+                            new_gr._expansions[lhs] = [rule]
+                        else:
+                            new_gr._expansions[lhs] += [rule]
+            count_after = sum(len(new_gr._expansions[i]) for i in new_gr._expansions)
+            # no more removals from this recursion
+            if count_after == count_bef:
+                return new_gr
+            temp_gr = new_gr
+            new_gr = Grammar(gr.start_symbol, *[]) 
+    
+    @classmethod
+    def reduce_grammar_size(cls, start_symbol: str, *files: Path, appeared_words: Set) -> None:
+        """overriding function for grammar with no non-appearing terminals"""
+        self.start_symbol = start_symbol
+        self._expansions: Dict[str, List[Rule]] = {}  # maps each LHS to the list of rules that expand it
+        # Read the input grammar files
+        for file in files:
+            add_rules_from_file_reduced_vocab(file, appeared_words)
+
     def add_rules_from_file(self, file: Path) -> None:
         """Add rules to this grammar from a file (one rule per line).
         Each rule is preceded by a normalized probability p,
@@ -348,6 +402,32 @@ class Grammar:
                 _prob, lhs, _rhs = line.split("\t")
                 prob = float(_prob)
                 rhs = tuple(_rhs.split())
+                rule = Rule(lhs=lhs, rhs=rhs, weight=-math.log2(prob))
+                if lhs not in self._expansions:
+                    self._expansions[lhs] = []
+                self._expansions[lhs].append(rule)
+
+    def add_rules_from_file_reduced_vocab(self, file: Path, appeared_words: Set) -> None:
+        """Add rules to this grammar from a file (one rule per line).
+        Each rule is preceded by a normalized probability p,
+        and we take -log2(p) to be the rule's weight."""
+        with open(file, "r") as f:
+            for line in f:
+                # remove any comment from end of line, and any trailing whitespace
+                line = line.split("#")[0].rstrip()
+                # skip empty lines
+                if line == "":
+                    continue
+                # Parse tab-delimited linfore of format <probability>\t<lhs>\t<rhs>
+                _prob, lhs, _rhs = line.split("\t")
+                prob = float(_prob)
+                rhs = tuple(_rhs.split())
+                # check if they appear in sentences
+                if lhs not in appeared_words:
+                    continue
+                for rhs_elem in rhs:
+                    if rhs_elem not in appeared_words:
+                        continue
                 rule = Rule(lhs=lhs, rhs=rhs, weight=-math.log2(prob))
                 if lhs not in self._expansions:
                     self._expansions[lhs] = []
@@ -451,13 +531,16 @@ def main():
     logging.basicConfig(level=args.verbose)  # Set logging level appropriately
 
     grammar = Grammar(args.start_symbol, args.grammar)
+    grammar = Grammar.reduce_terminals_not_appearing(grammar, args.sentences, args.grammar)
 
     with open(args.sentences) as f:
         for sentence in f.readlines():
             sentence = sentence.strip()
             if sentence != "":  # skip blank lines
+                prune_level = 7
                 # analyze the sentence
                 chart = EarleyChart(sentence.split(), grammar, progress=args.progress)
+
                 # print the result
                 logging.debug(f"Profile of work done: {chart.profile}")
                 if chart.accepted():
