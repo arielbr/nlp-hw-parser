@@ -5,3 +5,6 @@ log.txt
 .DS_Store
 .idea
 papaDebug.sen
+randsent.py
+parse
+backup.py

@@ -96,6 +96,28 @@ class EarleyChart:
                 return True
         return False  # we didn't find any appropriate item
 
+    def print_item(self, item: Item) -> str:
+        """
+        Print the best parse in the chart.
+        :return: The parse of the sentence.
+        """
+
+        res = ""
+
+        if item.left_ptr:
+            res += self.print_item(item.left_ptr)
+
+        if item.dot_position > 0:  # Avoid empty rhs
+            prev = item.rule.rhs[item.dot_position - 1]
+            if self.grammar.is_nonterminal(prev):
+                res += "( "
+            res += prev + " "
+
+        if item.right_ptr:
+            res += self.print_item(item.right_ptr) + " )"
+
+        return res
+
     def _run_earley(self) -> None:
         """Fill in the Earley chart"""
         # Initially empty column for each position in sentence
@@ -180,7 +202,7 @@ class EarleyChart:
                 #
                 # if new_item.right_ptr is not None:
                 #     right_ptr_pos = self.get_pointer(new_item.right_ptr)
-                logging.info(f"\tAttached to get: {new_item} in column {position}")
+                # logging.info(f"\tAttached to get: {new_item} in column {position}")
                 self.profile["ATTACH"] += 1
                 self.cols[position].push(new_item)
 
@@ -420,10 +442,30 @@ def main():
                 logging.debug(f"Parsing sentence: {sentence}")
                 chart = EarleyChart(sentence.split(), grammar, progress=args.progress)
                 # print the result
-                print(
-                    f"'{sentence}' is {'accepted' if chart.accepted() else 'rejected'} by {args.grammar}"
-                )
+                # print(
+                #     f"'{sentence}' is {'accepted' if chart.accepted() else 'rejected'} by {args.grammar}"
+                # )
                 logging.debug(f"Profile of work done: {chart.profile}")
+                if chart.accepted():
+                    last_item = None
+                    last_weight = 1e99
+                    for item in chart.cols[-1].all():  # the last column
+                        if (item.rule.lhs == chart.grammar.start_symbol  # a ROOT item in this column
+                                and item.next_symbol() is None  # that is complete
+                                and item.start_position == 0  # and started back at position 0
+                                and item.weight < last_weight):  # has minimal weight
+                            last_item = item
+                            last_weight = item.weight
+                    # logging.info(last_item)
+                    # logging.info(f"left: {last_item.left_ptr}")
+                    # logging.info(last_item.right_ptr)
+                    # logging.info(f"left: {last_item.right_ptr.left_ptr}")
+                    # logging.info(last_item.right_ptr.right_ptr)
+                    print()
+                    print(chart.print_item(last_item).strip())
+                    # print(last_item.weight)
+                else:
+                    print("None")
 
 
 if __name__ == "__main__":
