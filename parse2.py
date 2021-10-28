@@ -90,7 +90,7 @@ class EarleyChart:
         That is, does the finished chart contain an item corresponding to a parse of the sentence?
         This method answers the recognition question, but not the parsing question."""
         for item in self.cols[-1].all():  # the last column
-            if (item.rule.lhs == self.grammar.start_symbol  # a ROOT item in this column
+            if (item and item.rule.lhs == self.grammar.start_symbol  # a ROOT item in this column
                     and item.next_symbol() is None  # that is complete
                     and item.start_position == 0):  # and started back at position 0
                 return True
@@ -194,16 +194,8 @@ class EarleyChart:
 
         mid = item.start_position  # start position of this item = end position of item to its left
         for customer in self.cols[mid].all():  # could you eliminate this inefficient linear search?
-            if customer.next_symbol() == item.rule.lhs:
+            if customer and customer.next_symbol() == item.rule.lhs:
                 new_item = customer.with_dot_advanced_attach(item)
-                # left_ptr_pos = None
-                # right_ptr_pos = None
-                # if new_item.left_ptr is not None:
-                #     left_ptr_pos = self.get_pointer(new_item.left_ptr)
-                #
-                # if new_item.right_ptr is not None:
-                #     right_ptr_pos = self.get_pointer(new_item.right_ptr)
-                #logging.info(f"\tAttached to get: {new_item} in column {position}")
                 self.profile["ATTACH"] += 1
                 self.cols[position].push(new_item)
 
@@ -520,7 +512,7 @@ def main():
                         last_item = None
                         last_weight = 1e99
                         for item in chart.cols[-1].all():  # the last column
-                            if (item.rule.lhs == chart.grammar.start_symbol  # a ROOT item in this column
+                            if (item and item.rule.lhs == chart.grammar.start_symbol  # a ROOT item in this column
                                     and item.next_symbol() is None  # that is complete
                                     and item.start_position == 0  # and started back at position 0
                                     and item.weight < last_weight):  # has minimal weight
