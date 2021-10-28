@@ -112,7 +112,7 @@ class EarleyChart:
             if self.grammar.is_nonterminal(prev):
                 res += "(" + prev + " "
             else:
-                res += prev
+                res += " " + prev
 
         if item.right_ptr:
             res += self.print_item(item.right_ptr) + ")"
@@ -194,7 +194,7 @@ class EarleyChart:
 
         mid = item.start_position  # start position of this item = end position of item to its left
         for customer in self.cols[mid].all():  # could you eliminate this inefficient linear search?
-            if customer.next_symbol() == item.rule.lhs:
+            if customer and customer.next_symbol() == item.rule.lhs:
                 new_item = customer.with_dot_advanced_attach(item)
                 # left_ptr_pos = None
                 # right_ptr_pos = None
@@ -472,8 +472,9 @@ def main():
                             last_weight = item.weight
                     s = chart.print_item(last_item).strip()
                     s = "(" + args.start_symbol + " " + s + ")"
+                    s = " ".join(s.split())
                     print(s)
-                    # print(last_item.weight)
+                    print(last_item.weight)
                 else:
                     print("NONE")
 
