@@ -473,9 +473,9 @@ def main():
                     s = chart.print_item(last_item).strip()
                     s = "(" + args.start_symbol + " " + s + ")"
                     print(s)
-                    print(last_item.weight)
+                    # print(last_item.weight)
                 else:
-                    print("None")
+                    print("NONE")
 
 
 if __name__ == "__main__":
