@@ -21,7 +21,8 @@ from typing import Counter as CounterType, Iterable, List, Optional, Dict, Tuple
 # TODO: Remove
 import sys
 
-#logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+
+# logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 
 def parse_args() -> argparse.Namespace:
@@ -67,13 +68,6 @@ def parse_args() -> argparse.Namespace:
 class EarleyChart:
     """A chart for Earley's algorithm."""
 
-    # def get_pointer(self, item: Item) -> tuple:
-    #     """Compute the index of an existing item"""
-    #     # logging.info(item)
-    #     # logging.info((item.start_position, self.cols[item.start_position].get_row_index(item)))
-    #     item_position = item.start_position + item.dot_position
-    #     return (item_position, self.cols[item_position].get_row_index(item))
-
     def __init__(self, tokens: List[str], grammar: Grammar, progress: bool = False) -> None:
         """Create the chart based on parsing `tokens` with `grammar`.  
         `progress` says whether to display progress bars as we parse."""
@@ -90,7 +84,7 @@ class EarleyChart:
         That is, does the finished chart contain an item corresponding to a parse of the sentence?
         This method answers the recognition question, but not the parsing question."""
         for item in self.cols[-1].all():  # the last column
-            if (item.rule.lhs == self.grammar.start_symbol  # a ROOT item in this column
+            if (item and item.rule.lhs == self.grammar.start_symbol  # a ROOT item in this column
                     and item.next_symbol() is None  # that is complete
                     and item.start_position == 0):  # and started back at position 0
                 return True
@@ -143,15 +137,15 @@ class EarleyChart:
                 next = item.next_symbol()
                 if next is None:
                     # Attach this complete constituent to its customers
-                    #logging.debug(f"{item} => ATTACH")
+                    # logging.debug(f"{item} => ATTACH")
                     self._attach(item, i)
                 elif self.grammar.is_nonterminal(next):
                     # Predict the nonterminal after the dot
-                    #logging.debug(f"{item} => PREDICT")
+                    # logging.debug(f"{item} => PREDICT")
                     self._predict(next, i)
                 else:
                     # Try to scan the terminal after the dot
-                    #logging.debug(f"{item} => SCAN")
+                    # logging.debug(f"{item} => SCAN")
                     self._scan(item, i)
 
     def _predict(self, nonterminal: str, position: int) -> None:
@@ -196,14 +190,6 @@ class EarleyChart:
         for customer in self.cols[mid].all():  # could you eliminate this inefficient linear search?
             if customer and customer.next_symbol() == item.rule.lhs:
                 new_item = customer.with_dot_advanced_attach(item)
-                # left_ptr_pos = None
-                # right_ptr_pos = None
-                # if new_item.left_ptr is not None:
-                #     left_ptr_pos = self.get_pointer(new_item.left_ptr)
-                #
-                # if new_item.right_ptr is not None:
-                #     right_ptr_pos = self.get_pointer(new_item.right_ptr)
-                #logging.info(f"\tAttached to get: {new_item} in column {position}")
                 self.profile["ATTACH"] += 1
                 self.cols[position].push(new_item)
 
@@ -217,14 +203,15 @@ class EarleyChart:
             # terminal
             elif not cur.right_ptr and not cur.left_ptr:
                 s += ("(" + cur.rule.lhs + " " + cur.rule.rhs[0] + ")")
-                return 
+                return
             s += ("(" + cur.rule.lhs + " ")
             recurse(cur.left_ptr)
             recurse(cur.right_ptr)
             s += ")"
-        
+
         recurse(last)
         return s
+
 
 class Agenda:
     """An agenda of items that need to be processed.  Newly built items 
@@ -272,7 +259,6 @@ class Agenda:
         if item not in self._index:  # O(1) lookup in hash table
             self._items.append(item)
             self._index[item] = len(self._items) - 1
-            # logging.info(f"Pushed {item}")
         else:
             old_item_index = self.get_row_index(item)
             old_item = self.get(old_item_index)
@@ -280,7 +266,7 @@ class Agenda:
             # New item has lower weight thus replaces the old item or re-process
             if item.weight < old_item.weight:
                 next_index = self.next_index()
-                if next_index > old_item_index:
+                if next_index > old_item_index:  # old_item already been processed
                     # MOVE the old item down to allow re-processing
                     self._items[old_item_index] = None  # Remove the old item
                     self._items.append(item)  # Append the new item
@@ -440,9 +426,7 @@ class Item:
         rhs = list(self.rule.rhs)  # Make a copy.
         rhs.insert(self.dot_position, DOT)
         dotted_rule = f"{self.rule.lhs} → {' '.join(rhs)}"
-        # return f"{self.weight:.2f} {self.start_position}, {dotted_rule}"
-        return f"{self.weight:.2f} {self.start_position}, {dotted_rule} | left: ({self.left_ptr}) | right(" \
-               f"{self.right_ptr})"
+        return f"{self.weight:.2f} {self.start_position}, {dotted_rule}"
 
 
 def main():
@@ -464,7 +448,7 @@ def main():
                     last_item = None
                     last_weight = 1e99
                     for item in chart.cols[-1].all():  # the last column
-                        if (item.rule.lhs == chart.grammar.start_symbol  # a ROOT item in this column
+                        if (item and item.rule.lhs == chart.grammar.start_symbol  # a ROOT item in this column
                                 and item.next_symbol() is None  # that is complete
                                 and item.start_position == 0  # and started back at position 0
                                 and item.weight < last_weight):  # has minimal weight
