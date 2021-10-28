@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 Determine whether sentences are grammatical under a CFG, using Earley's algorithm.
 (Starting from this basic recognizer, you should write a probabilistic parser
@@ -21,7 +21,7 @@ from typing import Counter as CounterType, Iterable, List, Optional, Dict, Tuple
 # TODO: Remove
 import sys
 
-logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+#logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 
 def parse_args() -> argparse.Namespace:
@@ -120,15 +120,15 @@ class EarleyChart:
                 next = item.next_symbol()
                 if next is None:
                     # Attach this complete constituent to its customers
-                    logging.debug(f"{item} => ATTACH")
+                    #logging.debug(f"{item} => ATTACH")
                     self._attach(item, i)
                 elif self.grammar.is_nonterminal(next):
                     # Predict the nonterminal after the dot
-                    logging.debug(f"{item} => PREDICT")
+                    #logging.debug(f"{item} => PREDICT")
                     self._predict(next, i)
                 else:
                     # Try to scan the terminal after the dot
-                    logging.debug(f"{item} => SCAN")
+                    #logging.debug(f"{item} => SCAN")
                     self._scan(item, i)
 
     def _predict(self, nonterminal: str, position: int) -> None:
@@ -180,10 +180,28 @@ class EarleyChart:
                 #
                 # if new_item.right_ptr is not None:
                 #     right_ptr_pos = self.get_pointer(new_item.right_ptr)
-                logging.info(f"\tAttached to get: {new_item} in column {position}")
+                #logging.info(f"\tAttached to get: {new_item} in column {position}")
                 self.profile["ATTACH"] += 1
                 self.cols[position].push(new_item)
 
+    def print_tree(self, last: Item) -> str:
+        s = "("
+
+        def recurse(cur):
+            nonlocal s
+            if not cur or self.grammar.is_nonterminal(cur.rule.rhs[0]) and not cur.right_ptr and not cur.left_ptr:
+                return
+            # terminal
+            elif not cur.right_ptr and not cur.left_ptr:
+                s += ("(" + cur.rule.lhs + " " + cur.rule.rhs[0] + ")")
+                return 
+            s += ("(" + cur.rule.lhs + " ")
+            recurse(cur.left_ptr)
+            recurse(cur.right_ptr)
+            s += ")"
+        
+        recurse(last)
+        return s
 
 class Agenda:
     """An agenda of items that need to be processed.  Newly built items 
@@ -416,14 +434,29 @@ def main():
             sentence = sentence.strip()
             if sentence != "":  # skip blank lines
                 # analyze the sentence
-                logging.debug("=" * 70)
-                logging.debug(f"Parsing sentence: {sentence}")
+                #logging.debug("=" * 70)
+                #logging.debug(f"Parsing sentence: {sentence}")
                 chart = EarleyChart(sentence.split(), grammar, progress=args.progress)
                 # print the result
-                print(
-                    f"'{sentence}' is {'accepted' if chart.accepted() else 'rejected'} by {args.grammar}"
-                )
-                logging.debug(f"Profile of work done: {chart.profile}")
+                # print(
+                #     f"'{sentence}' is {'accepted' if chart.accepted() else 'rejected'} by {args.grammar}"
+                # )
+                #logging.debug(f"Profile of work done: {chart.profile}")
+                if chart.accepted():
+                    last_item = None
+                    last_weight = 1e99
+                    for item in chart.cols[-1].all():  # the last column
+                        if (item.rule.lhs == chart.grammar.start_symbol  # a ROOT item in this column
+                                and item.next_symbol() is None  # that is complete
+                                and item.start_position == 0 # and started back at position 0
+                                and item.weight < last_weight):
+                            last_item = item
+                            last_weight = item.weight
+                    #logging.info(last_item)
+                    print(chart.print_tree(last_item))
+                    print(last_item.weight)
+                else:
+                    print("None")
 
 
 if __name__ == "__main__":

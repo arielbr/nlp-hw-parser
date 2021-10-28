@@ -262,6 +262,25 @@ class Grammar:
         for file in files:
             self.add_rules_from_file(file)
 
+    # overriding function for grammar with no non-appearing terminals
+    def __init__(self, start_symbol: str, *files: Path, appeared_words: Set) -> None:
+        """Create a grammar with the given start symbol, 
+        adding rules from the specified files if any."""
+        self.start_symbol = start_symbol
+        self._expansions: Dict[str, List[Rule]] = {}  # maps each LHS to the list of rules that expand it
+        # Read the input grammar files
+        for file in files:
+            self.add_rules_from_file_reduced_vocab(file, appeared_words)
+
+    # overriding function for grammar with low-prob lines pruned
+    def __init__(self, gr: Grammar, prune_level: float = 0.001) -> None:
+        self.start_symbol = gr.start_symbol
+        self._expansions: Dict[str, List[Rule]] = {}
+        for lhs in gr._expansions:
+            for rule in gr._expansions[lhs]:
+                if rule.get_weight > prune_level:
+                    gr.expansions[lhs].remove(rule)
+
     def add_rules_from_file(self, file: Path) -> None:
         """Add rules to this grammar from a file (one rule per line).
         Each rule is preceded by a normalized probability p,
@@ -290,6 +309,32 @@ class Grammar:
         """Is symbol a nonterminal symbol?"""
         return symbol in self._expansions
 
+    def add_rules_from_file_reduced_vocab(self, file: Path, appeared_words: Set) -> None:
+        """Add rules to this grammar from a file (one rule per line).
+        Each rule is preceded by a normalized probability p,
+        and we take -log2(p) to be the rule's weight."""
+        with open(file, "r") as f:
+            for line in f:
+                # remove any comment from end of line, and any trailing whitespace
+                line = line.split("#")[0].rstrip()
+                # skip empty lines
+                if line == "":
+                    continue
+                # Parse tab-delimited linfore of format <probability>\t<lhs>\t<rhs>
+                _prob, lhs, _rhs = line.split("\t")
+                prob = float(_prob)
+                rhs = tuple(_rhs.split())
+                # check if they appear in sentences
+                if lhs not in appeared_words:
+                    continue
+                for rhs_elem in rhs:
+                    if rhs_elem not in appeared_words:
+                        continue
+                rule = Rule(lhs=lhs, rhs=rhs, weight=-math.log2(prob))
+                if lhs not in self._expansions:
+                    self._expansions[lhs] = []
+                self._expansions[lhs].append(rule)
+
 
 # A dataclass is a class that provides some useful defaults for you. If you define
 # the data that the class should hold, it will automatically make things like an
@@ -310,6 +355,9 @@ class Rule:
     def __repr__(self) -> str:
         """Complete string used to show this rule instance at the command line"""
         return f"{self.lhs} → {' '.join(self.rhs)}"
+
+    def get_weight(self):
+        return self.weight
 
 
 # We particularly want items to be immutable, since they will be hashed and 
@@ -376,7 +424,17 @@ def main():
     args = parse_args()
     logging.basicConfig(level=args.verbose)  # Set logging level appropriately
 
-    grammar = Grammar(args.start_symbol, args.grammar)
+    #grammar = Grammar(args.start_symbol, args.grammar)
+
+    # remove rules with terminals not appearing in the text
+    words_set = set()
+    with open(args.sentences) as f:
+        for sentence in f.readlines():
+            if sentence != "":
+                words = sentence.split()
+                words_set = words_set.union(words)
+    grammar = Grammar(args.start_symbol, args.grammar, words_set)
+    grammar_pruned = Grammar(grammar, prune_level=0.005)
 
     with open(args.sentences) as f:
         for sentence in f.readlines():
@@ -385,11 +443,18 @@ def main():
                 # analyze the sentence
                 logging.debug("=" * 70)
                 logging.debug(f"Parsing sentence: {sentence}")
-                chart = EarleyChart(sentence.split(), grammar, progress=args.progress)
-                # print the result
-                print(
-                    f"'{sentence}' is {'accepted' if chart.accepted() else 'rejected'} by {args.grammar}"
-                )
+                # try parsing with pruned grammar
+                chart_pruned = EarleyChart(sentence.split(), grammar_pruned, progress=args.progress)
+                if chart_pruned.accepted():
+                    print(
+                        f"'{sentence}' is accepted by {args.grammar}"
+                    )
+                else:
+                    chart = EarleyChart(sentence.split(), grammar, progress=args.progress)
+                    # print the result
+                    print(
+                        f"'{sentence}' is {'accepted' if chart.accepted() else 'rejected'} by {args.grammar}"
+                    )
                 logging.debug(f"Profile of work done: {chart.profile}")
 
 
