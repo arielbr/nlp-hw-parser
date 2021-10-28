@@ -96,6 +96,28 @@ class EarleyChart:
                 return True
         return False  # we didn't find any appropriate item
 
+    def print_item(self, item: Item) -> str:
+        """
+        Print the best parse in the chart.
+        :return: The parse of the sentence.
+        """
+
+        res = ""
+
+        if item.left_ptr:
+            res += self.print_item(item.left_ptr)
+
+        if item.dot_position > 0:  # Avoid empty rhs
+            prev = item.rule.rhs[item.dot_position - 1]
+            if self.grammar.is_nonterminal(prev):
+                res += "( "
+            res += prev + " "
+
+        if item.right_ptr:
+            res += self.print_item(item.right_ptr) + " )"
+
+        return res
+
     def _run_earley(self) -> None:
         """Fill in the Earley chart"""
         # Initially empty column for each position in sentence
@@ -441,19 +463,25 @@ def main():
                 # print(
                 #     f"'{sentence}' is {'accepted' if chart.accepted() else 'rejected'} by {args.grammar}"
                 # )
-                #logging.debug(f"Profile of work done: {chart.profile}")
+                logging.debug(f"Profile of work done: {chart.profile}")
                 if chart.accepted():
                     last_item = None
                     last_weight = 1e99
                     for item in chart.cols[-1].all():  # the last column
                         if (item.rule.lhs == chart.grammar.start_symbol  # a ROOT item in this column
                                 and item.next_symbol() is None  # that is complete
-                                and item.start_position == 0 # and started back at position 0
-                                and item.weight < last_weight):
+                                and item.start_position == 0  # and started back at position 0
+                                and item.weight < last_weight):  # has minimal weight
                             last_item = item
                             last_weight = item.weight
-                    #logging.info(last_item)
-                    print(chart.print_tree(last_item))
+                    # logging.info(last_item)
+                    # logging.info(f"left: {last_item.left_ptr}")
+                    # logging.info(last_item.right_ptr)
+                    # logging.info(f"left: {last_item.right_ptr.left_ptr}")
+                    # logging.info(last_item.right_ptr.right_ptr)
+                    s = chart.print_item(last_item).strip()
+                    s = "(" + args.start_symbol + " " + s + ")"
+                    print(s)
                     print(last_item.weight)
                 else:
                     print("None")
