@@ -114,7 +114,7 @@ class EarleyChart:
             res += prev + " "
 
         if item.right_ptr:
-            res += self.print_item(item.right_ptr) + " )"
+            res += self.print_item(item.right_ptr) + ") "
 
         return res
 
@@ -480,7 +480,7 @@ def main():
                     # logging.info(f"left: {last_item.right_ptr.left_ptr}")
                     # logging.info(last_item.right_ptr.right_ptr)
                     s = chart.print_item(last_item).strip()
-                    s = "(" + args.start_symbol + " " + s + ")"
+                    s = "( " + args.start_symbol + " " + s + " )"
                     print(s)
                     print(last_item.weight)
                 else:
