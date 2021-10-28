@@ -85,15 +85,6 @@ class EarleyChart:
         self.cols: List[Agenda]
         self._run_earley()  # run Earley's algorithm to construct self.cols
 
-    # overriding function for grammar with low-prob lines pruned
-    def __init__(self, gr: Grammar, prune_level: float = 0.001) -> None:
-        self.start_symbol = gr.start_symbol
-        self._expansions: Dict[str, List[Rule]] = {}
-        for lhs in gr._expansions:
-            for rule in gr._expansions[lhs]:
-                if rule.get_weight > prune_level:
-                    gr.expansions[lhs].remove(rule)
-
     def accepted(self) -> bool:
         """Was the sentence accepted?
         That is, does the finished chart contain an item corresponding to a parse of the sentence?
@@ -379,13 +370,18 @@ class Grammar:
             new_gr = Grammar(gr.start_symbol, *[]) 
     
     @classmethod
-    def reduce_grammar_size(cls, start_symbol: str, *files: Path, appeared_words: Set) -> None:
-        """overriding function for grammar with no non-appearing terminals"""
-        self.start_symbol = start_symbol
-        self._expansions: Dict[str, List[Rule]] = {}  # maps each LHS to the list of rules that expand it
-        # Read the input grammar files
-        for file in files:
-            add_rules_from_file_reduced_vocab(file, appeared_words)
+    def prune(cls, gr: Grammar, prune_level: float) -> Grammar:
+        """prune out grammar rules with prob less than the threshold"""
+        new_gr = Grammar(gr.start_symbol, *[])
+        new_gr._expansions: Dict[str, List[Rule]] = {}  # maps each LHS to the list of rules that expand it
+        for lhs in gr._expansions:
+            for rule in gr._expansions[lhs]:
+                if rule.weight <= prune_level:
+                    if rule.lhs not in new_gr._expansions:
+                        new_gr._expansions[lhs] = [rule]
+                    else:
+                        new_gr._expansions[lhs] += [rule]
+        return new_gr
 
     def add_rules_from_file(self, file: Path) -> None:
         """Add rules to this grammar from a file (one rule per line).
@@ -402,32 +398,6 @@ class Grammar:
                 _prob, lhs, _rhs = line.split("\t")
                 prob = float(_prob)
                 rhs = tuple(_rhs.split())
-                rule = Rule(lhs=lhs, rhs=rhs, weight=-math.log2(prob))
-                if lhs not in self._expansions:
-                    self._expansions[lhs] = []
-                self._expansions[lhs].append(rule)
-
-    def add_rules_from_file_reduced_vocab(self, file: Path, appeared_words: Set) -> None:
-        """Add rules to this grammar from a file (one rule per line).
-        Each rule is preceded by a normalized probability p,
-        and we take -log2(p) to be the rule's weight."""
-        with open(file, "r") as f:
-            for line in f:
-                # remove any comment from end of line, and any trailing whitespace
-                line = line.split("#")[0].rstrip()
-                # skip empty lines
-                if line == "":
-                    continue
-                # Parse tab-delimited linfore of format <probability>\t<lhs>\t<rhs>
-                _prob, lhs, _rhs = line.split("\t")
-                prob = float(_prob)
-                rhs = tuple(_rhs.split())
-                # check if they appear in sentences
-                if lhs not in appeared_words:
-                    continue
-                for rhs_elem in rhs:
-                    if rhs_elem not in appeared_words:
-                        continue
                 rule = Rule(lhs=lhs, rhs=rhs, weight=-math.log2(prob))
                 if lhs not in self._expansions:
                     self._expansions[lhs] = []
@@ -538,27 +508,32 @@ def main():
             sentence = sentence.strip()
             if sentence != "":  # skip blank lines
                 prune_level = 7
+                prune_level_max = 20 # -log_2(0.000001)
                 # analyze the sentence
-                chart = EarleyChart(sentence.split(), grammar, progress=args.progress)
 
-                # print the result
-                logging.debug(f"Profile of work done: {chart.profile}")
-                if chart.accepted():
-                    last_item = None
-                    last_weight = 1e99
-                    for item in chart.cols[-1].all():  # the last column
-                        if (item.rule.lhs == chart.grammar.start_symbol  # a ROOT item in this column
-                                and item.next_symbol() is None  # that is complete
-                                and item.start_position == 0  # and started back at position 0
-                                and item.weight < last_weight):  # has minimal weight
-                            last_item = item
-                            last_weight = item.weight
-                    s = chart.print_item(last_item).strip()
-                    s = "(" + args.start_symbol + " " + s + ")"
-                    print(s)
-                    print(last_item.weight)
-                else:
-                    print("NONE")
+                while prune_level <= prune_level_max:
+                    new_gr = Grammar.prune(grammar, prune_level)
+                    chart = EarleyChart(sentence.split(), new_gr, progress=args.progress)
+                    # print the result
+                    logging.debug(f"Profile of work done: {chart.profile}")
+                    if chart.accepted():
+                        last_item = None
+                        last_weight = 1e99
+                        for item in chart.cols[-1].all():  # the last column
+                            if (item.rule.lhs == chart.grammar.start_symbol  # a ROOT item in this column
+                                    and item.next_symbol() is None  # that is complete
+                                    and item.start_position == 0  # and started back at position 0
+                                    and item.weight < last_weight):  # has minimal weight
+                                last_item = item
+                                last_weight = item.weight
+                        s = chart.print_item(last_item).strip()
+                        s = "(" + args.start_symbol + " " + s + ")"
+                        print(s)
+                        print(last_item.weight)
+                        break
+                    prune_level += 3
+                    
+                print("NONE")
 
 
 if __name__ == "__main__":
