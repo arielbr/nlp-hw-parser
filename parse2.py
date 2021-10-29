@@ -502,7 +502,7 @@ def main():
                 prune_level = 7
                 prune_level_max = 20 # -log_2(0.000001)
                 # analyze the sentence
-
+                found = False
                 while prune_level <= prune_level_max:
                     new_gr = Grammar.prune(grammar, prune_level)
                     chart = EarleyChart(sentence.split(), new_gr, progress=args.progress)
@@ -522,10 +522,11 @@ def main():
                         s = "(" + args.start_symbol + " " + s + ")"
                         print(s)
                         print(last_item.weight)
+                        found = True
                         break
                     prune_level += 3
-                    
-                print("NONE")
+                if not found: 
+                    print("NONE")
 
 
 if __name__ == "__main__":
