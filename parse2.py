@@ -77,7 +77,7 @@ class EarleyChart:
         self.profile: CounterType[str] = Counter()
 
         self.cols: List[Agenda]
-        self.prune_level = 200
+        self.prune_level = 400
 
     def accepted(self) -> bool:
         """Was the sentence accepted?
