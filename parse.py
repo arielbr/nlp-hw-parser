@@ -193,25 +193,6 @@ class EarleyChart:
                 self.profile["ATTACH"] += 1
                 self.cols[position].push(new_item)
 
-    def print_tree(self, last: Item) -> str:
-        s = "("
-
-        def recurse(cur):
-            nonlocal s
-            if not cur or self.grammar.is_nonterminal(cur.rule.rhs[0]) and not cur.right_ptr and not cur.left_ptr:
-                return
-            # terminal
-            elif not cur.right_ptr and not cur.left_ptr:
-                s += ("(" + cur.rule.lhs + " " + cur.rule.rhs[0] + ")")
-                return
-            s += ("(" + cur.rule.lhs + " ")
-            recurse(cur.left_ptr)
-            recurse(cur.right_ptr)
-            s += ")"
-
-        recurse(last)
-        return s
-
 
 class Agenda:
     """An agenda of items that need to be processed.  Newly built items 

@@ -21,7 +21,8 @@ from typing import Counter as CounterType, Iterable, List, Optional, Dict, Tuple
 # TODO: Remove
 import sys
 
-#logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+
+# logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 
 def parse_args() -> argparse.Namespace:
@@ -67,13 +68,6 @@ def parse_args() -> argparse.Namespace:
 class EarleyChart:
     """A chart for Earley's algorithm."""
 
-    # def get_pointer(self, item: Item) -> tuple:
-    #     """Compute the index of an existing item"""
-    #     # logging.info(item)
-    #     # logging.info((item.start_position, self.cols[item.start_position].get_row_index(item)))
-    #     item_position = item.start_position + item.dot_position
-    #     return (item_position, self.cols[item_position].get_row_index(item))
-
     def __init__(self, tokens: List[str], grammar: Grammar, progress: bool = False) -> None:
         """Create the chart based on parsing `tokens` with `grammar`.  
         `progress` says whether to display progress bars as we parse."""
@@ -83,7 +77,7 @@ class EarleyChart:
         self.profile: CounterType[str] = Counter()
 
         self.cols: List[Agenda]
-        self._run_earley()  # run Earley's algorithm to construct self.cols
+        self.prune_level = 200
 
     def accepted(self) -> bool:
         """Was the sentence accepted?
@@ -112,7 +106,7 @@ class EarleyChart:
             if self.grammar.is_nonterminal(prev):
                 res += " (" + prev if not res or res[-1] != "(" else "(" + prev + " "
             else:
-                res += " " + prev  
+                res += " " + prev
 
         if item.right_ptr:
             res += self.print_item(item.right_ptr) + ")"
@@ -143,15 +137,15 @@ class EarleyChart:
                 next = item.next_symbol()
                 if next is None:
                     # Attach this complete constituent to its customers
-                    #logging.debug(f"{item} => ATTACH")
+                    logging.debug(f"{item} => ATTACH")
                     self._attach(item, i)
                 elif self.grammar.is_nonterminal(next):
                     # Predict the nonterminal after the dot
-                    #logging.debug(f"{item} => PREDICT")
+                    # logging.debug(f"{item} => PREDICT")
                     self._predict(next, i)
                 else:
                     # Try to scan the terminal after the dot
-                    #logging.debug(f"{item} => SCAN")
+                    # logging.debug(f"{item} => SCAN")
                     self._scan(item, i)
 
     def _predict(self, nonterminal: str, position: int) -> None:
@@ -179,18 +173,6 @@ class EarleyChart:
         customers' dots to create new items in this column.  (This operation is sometimes
         called "complete," but actually it attaches an item that was already complete.)
         """
-        # Attemp to get the ancestor using the backpointers
-        # if item.backpointer[0] != (-1, -1):
-        #     # Trace back predictions, if any, to find customer
-        #     # customer = self.get(item.backpointer[0])
-        #     # while customer.next_symbol() != item.rule.lhs:
-        #     #     customer = self.get(customer.backpointer[0])
-        #     # item_pointer = self.get_pointer(item)
-        #     # new_item = customer.with_dot_advanced_attach(item, item_pointer)
-        #     # logging.info(f"Attaching: {item} to {customer}")
-        #
-        #     logging.info(f"\tAttached to get: {new_item} in column {position}")
-        #     self.cols[position].push(new_item)
 
         mid = item.start_position  # start position of this item = end position of item to its left
         for customer in self.cols[mid].all():  # could you eliminate this inefficient linear search?
@@ -199,24 +181,6 @@ class EarleyChart:
                 self.profile["ATTACH"] += 1
                 self.cols[position].push(new_item)
 
-    def print_tree(self, last: Item) -> str:
-        s = "("
-
-        def recurse(cur):
-            nonlocal s
-            if not cur or self.grammar.is_nonterminal(cur.rule.rhs[0]) and not cur.right_ptr and not cur.left_ptr:
-                return
-            # terminal
-            elif not cur.right_ptr and not cur.left_ptr:
-                s += ("(" + cur.rule.lhs + " " + cur.rule.rhs[0] + ")")
-                return 
-            s += ("(" + cur.rule.lhs + " ")
-            recurse(cur.left_ptr)
-            recurse(cur.right_ptr)
-            s += ")"
-        
-        recurse(last)
-        return s
 
 class Agenda:
     """An agenda of items that need to be processed.  Newly built items 
@@ -259,12 +223,14 @@ class Agenda:
         Enables `len(my_agenda)`."""
         return len(self._items) - self._next
 
-    def push(self, item: Item) -> None:
+    def push(self, item: Item, prune_level=1e99) -> None:
         """Add (enqueue) the item, unless it was previously added."""
+        if item.weight > prune_level:
+            return
+
         if item not in self._index:  # O(1) lookup in hash table
             self._items.append(item)
             self._index[item] = len(self._items) - 1
-            # logging.info(f"Pushed {item}")
         else:
             old_item_index = self.get_row_index(item)
             old_item = self.get(old_item_index)
@@ -330,7 +296,7 @@ class Grammar:
         """Remove rules with terminals not appearing in the text"""
         words_set = set()
         temp_gr = Grammar(gr.start_symbol, *grammarfiles)
-        new_gr = Grammar(gr.start_symbol, *[]) # make new grammar with temporarily empty set of rules
+        new_gr = Grammar(gr.start_symbol, *[])  # make new grammar with temporarily empty set of rules
         with open(sentences) as f:
             for sentence in f.readlines():
                 if sentence != "":
@@ -359,8 +325,8 @@ class Grammar:
             if count_after == count_bef:
                 return new_gr
             temp_gr = new_gr
-            new_gr = Grammar(gr.start_symbol, *[]) 
-    
+            new_gr = Grammar(gr.start_symbol, *[])
+
     @classmethod
     def prune(cls, gr: Grammar, prune_level: float) -> Grammar:
         """prune out grammar rules with prob less than the threshold"""
@@ -493,19 +459,18 @@ def main():
     logging.basicConfig(level=args.verbose)  # Set logging level appropriately
 
     grammar = Grammar(args.start_symbol, args.grammar)
-    #grammar = Grammar.reduce_terminals_not_appearing(grammar, args.sentences, args.grammar)
+    # grammar = Grammar.reduce_terminals_not_appearing(grammar, args.sentences, args.grammar)
 
     with open(args.sentences) as f:
         for sentence in f.readlines():
             sentence = sentence.strip()
             if sentence != "":  # skip blank lines
-                prune_level = 12
-                prune_level_max = 20 # -log_2(0.000001)
+                prune_level_max = 800
                 # analyze the sentence
                 found = False
-                while prune_level <= prune_level_max:
-                    new_gr = Grammar.prune(grammar, prune_level)
-                    chart = EarleyChart(sentence.split(), new_gr, progress=args.progress)
+                chart = EarleyChart(sentence.split(), grammar, progress=args.progress)
+                while chart.prune_level <= prune_level_max:
+                    chart._run_earley()
                     # print the result
                     logging.debug(f"Profile of work done: {chart.profile}")
                     if chart.accepted():
@@ -524,8 +489,8 @@ def main():
                         print(last_item.weight)
                         found = True
                         break
-                    prune_level += 2
-                if not found: 
+                    chart.prune_level += 100
+                if not found:
                     print("NONE")
 
 
