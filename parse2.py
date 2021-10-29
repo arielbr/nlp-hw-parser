@@ -493,13 +493,13 @@ def main():
     logging.basicConfig(level=args.verbose)  # Set logging level appropriately
 
     grammar = Grammar(args.start_symbol, args.grammar)
-    grammar = Grammar.reduce_terminals_not_appearing(grammar, args.sentences, args.grammar)
+    #grammar = Grammar.reduce_terminals_not_appearing(grammar, args.sentences, args.grammar)
 
     with open(args.sentences) as f:
         for sentence in f.readlines():
             sentence = sentence.strip()
             if sentence != "":  # skip blank lines
-                prune_level = 7
+                prune_level = 12
                 prune_level_max = 20 # -log_2(0.000001)
                 # analyze the sentence
                 found = False
@@ -524,7 +524,7 @@ def main():
                         print(last_item.weight)
                         found = True
                         break
-                    prune_level += 3
+                    prune_level += 2
                 if not found: 
                     print("NONE")
 
